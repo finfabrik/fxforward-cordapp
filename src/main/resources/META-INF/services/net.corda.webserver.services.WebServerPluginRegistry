@@ -1,3 +1,3 @@
 # Register here any CorDapp plugins extending from net.corda.webserver.services.WebServerPluginRegistry.
 com.finfabrik.corda.FXForwardPlugin
-com.finfabrik.corda.IOUPlugin
+com.finfabrik.corda.TokenPlugin

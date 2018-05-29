@@ -1,5 +1,7 @@
 package com.finfabrik.corda
 
+import com.finfabrik.corda.flows.TokenIssueFlow
+import com.finfabrik.corda.flows.TokenTransferFlow
 import net.corda.core.contracts.Amount
 import net.corda.core.contracts.ContractState
 import net.corda.core.contracts.StateAndRef
@@ -12,35 +14,24 @@ import net.corda.core.messaging.startTrackedFlow
 import net.corda.core.messaging.vaultQueryBy
 import net.corda.core.node.NodeInfo
 import net.corda.core.utilities.loggerFor
+import net.corda.finance.contracts.Commodity
 import net.corda.finance.contracts.asset.Cash
 import net.corda.finance.contracts.getCashBalances
-import com.finfabrik.corda.flows.IOUIssueFlow
-import com.finfabrik.corda.flows.IOUSettleFlow
-import com.finfabrik.corda.flows.IOUTransferFlow
-import com.finfabrik.corda.flows.SelfIssueCashFlow
 import org.bouncycastle.asn1.x500.X500Name
 import org.bouncycastle.asn1.x500.style.BCStyle
 import org.slf4j.Logger
-import java.util.Currency
-import javax.ws.rs.GET
-import javax.ws.rs.PUT
-import javax.ws.rs.Path
-import javax.ws.rs.Produces
-import javax.ws.rs.QueryParam
+import javax.ws.rs.*
 import javax.ws.rs.core.MediaType
 import javax.ws.rs.core.Response
 
-/**
- * This API is accessible from /api/iou. The endpoint paths specified below are relative to it.
- * We've defined a bunch of endpoints to deal with IOUs, cash and the various operations you can perform with them.
- */
-@Path("iou")
-class IOUApi(val rpcOps: CordaRPCOps) {
+
+@Path("token")
+class TokenApi(val rpcOps: CordaRPCOps) {
     private val me = rpcOps.nodeInfo().legalIdentities.first().name
     private val myLegalName = me.x500Name
 
     companion object {
-        private val logger: Logger = loggerFor<IOUApi>()
+        private val logger: Logger = loggerFor<TokenApi>()
     }
 
     fun X500Name.toDisplayString() : String  = BCStyle.INSTANCE.toString(this)
@@ -73,16 +64,16 @@ class IOUApi(val rpcOps: CordaRPCOps) {
 
     /**
      * Task 1
-     * Displays all IOU states that exist in the node's vault.
-     * TODO: Return a list of IOUStates on ledger
-     * Hint - Use [rpcOps] to query the vault all unconsumed [IOUState]s
+     * Displays all Token states that exist in the node's vault.
+     * TODO: Return a list of TokenStates on ledger
+     * Hint - Use [rpcOps] to query the vault all unconsumed [TokenState]s
      */
     @GET
-    @Path("ious")
+    @Path("tokens")
     @Produces(MediaType.APPLICATION_JSON)
-    fun getIOUs(): List<StateAndRef<ContractState>> {
-        // Filter by state type: IOU.
-        return rpcOps.vaultQueryBy<IOUState>().states
+    fun getTokens(): List<StateAndRef<ContractState>> {
+        // Filter by state type: Token.
+        return rpcOps.vaultQueryBy<TokenState>().states
     }
 
     /**
@@ -106,21 +97,19 @@ class IOUApi(val rpcOps: CordaRPCOps) {
     fun getCashBalances() = rpcOps.getCashBalances()
 
     /**
-     * Initiates a flow to agree an IOU between two parties.
+     * Initiates a flow to agree an Token between two parties.
      */
     @PUT
-    @Path("issue-iou")
-    fun issueIOU(@QueryParam(value = "amount") amount: Int,
-                 @QueryParam(value = "currency") currency: String,
-                 @QueryParam(value = "party") party: String): Response {
+    @Path("issue-token")
+    fun issueToken(@QueryParam(value = "amount") amount: Int,
+                   @QueryParam(value = "token") token: String): Response {
         // Get party objects for myself and the counterparty.
         val me = rpcOps.nodeInfo().legalIdentities.first()
-        val lender = rpcOps.wellKnownPartyFromX500Name(CordaX500Name.parse(party)) ?: throw IllegalArgumentException("Unknown party name.")
-        // Create a new IOU state using the parameters given.
+        // Create a new Token state using the parameters given.
         try {
-            val state = IOUState(Amount(amount.toLong() * 100, Currency.getInstance(currency)), lender, me)
-            // Start the IOUIssueFlow. We block and waits for the flow to return.
-            val result = rpcOps.startTrackedFlow(::IOUIssueFlow, state).returnValue.get()
+            val state = TokenState(Amount(amount.toLong() * 1000, Commodity(token, token)), me)
+            // Start the TokenIssueFlow. We block and waits for the flow to return.
+            val result = rpcOps.startTrackedFlow(::TokenIssueFlow, state).returnValue.get()
             // Return the response.
             return Response
                     .status(Response.Status.CREATED)
@@ -136,61 +125,17 @@ class IOUApi(val rpcOps: CordaRPCOps) {
     }
 
     /**
-     * Transfers an IOU specified by [linearId] to a new party.
+     * Transfers an Token specified by [linearId] to a new party.
      */
     @GET
-    @Path("transfer-iou")
-    fun transferIOU(@QueryParam(value = "id") id: String,
-                    @QueryParam(value = "party") party: String): Response {
+    @Path("transfer-token")
+    fun transferToken(@QueryParam(value = "id") id: String,
+                      @QueryParam(value = "party") party: String): Response {
         val linearId = UniqueIdentifier.fromString(id)
         val newLender = rpcOps.wellKnownPartyFromX500Name(CordaX500Name.parse(party)) ?: throw IllegalArgumentException("Unknown party name.")
         try {
-            rpcOps.startFlow(::IOUTransferFlow, linearId, newLender).returnValue.get()
-            return Response.status(Response.Status.CREATED).entity("IOU $id transferred to $party.").build()
-
-        } catch (e: Exception) {
-            return Response
-                    .status(Response.Status.BAD_REQUEST)
-                    .entity(e.message)
-                    .build()
-        }
-    }
-
-    /**
-     * Settles an IOU. Requires cash in the right currency to be able to settle.
-     */
-    @GET
-    @Path("settle-iou")
-    fun settleIOU(@QueryParam(value = "id") id: String,
-                  @QueryParam(value = "amount") amount: Int,
-                  @QueryParam(value = "currency") currency: String): Response {
-        val linearId = UniqueIdentifier.fromString(id)
-        val settleAmount = Amount(amount.toLong() * 100, Currency.getInstance(currency))
-
-        try {
-            rpcOps.startFlow(::IOUSettleFlow, linearId, settleAmount).returnValue.get()
-            return Response.status(Response.Status.CREATED).entity("$amount $currency paid off on IOU id $id.").build()
-
-        } catch (e: Exception) {
-            return Response
-                    .status(Response.Status.BAD_REQUEST)
-                    .entity(e.message)
-                    .build()
-        }
-    }
-
-    /**
-     * Helper end-point to issue some cash to ourselves.
-     */
-    @GET
-    @Path("self-issue-cash")
-    fun selfIssueCash(@QueryParam(value = "amount") amount: Int,
-                      @QueryParam(value = "currency") currency: String): Response {
-        val issueAmount = Amount(amount.toLong() * 100, Currency.getInstance(currency))
-
-        try {
-            val cashState = rpcOps.startFlow(::SelfIssueCashFlow, issueAmount).returnValue.get()
-            return Response.status(Response.Status.CREATED).entity(cashState.toString()).build()
+            rpcOps.startFlow(::TokenTransferFlow, linearId, newLender).returnValue.get()
+            return Response.status(Response.Status.CREATED).entity("Token $id transferred to $party.").build()
 
         } catch (e: Exception) {
             return Response
