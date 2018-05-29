@@ -14,6 +14,8 @@ import net.corda.core.transactions.SignedTransaction;
 import net.corda.core.transactions.TransactionBuilder;
 import net.corda.core.utilities.ProgressTracker;
 import net.corda.core.utilities.ProgressTracker.Step;
+import net.corda.finance.contracts.Commodity;
+import net.corda.finance.contracts.Tenor;
 
 import java.security.PublicKey;
 import java.time.Duration;
@@ -25,8 +27,10 @@ public class IssueFXForward {
     @InitiatingFlow
     @StartableByRPC
     public static class Initiator extends FXForwardBaseFlow {
-        private final Amount<Currency> amount;
-        private final Party lender;
+        private final Amount<Currency> base;
+        private final Amount<Commodity> terms;
+        private final Party buyer;
+        private final Tenor tenor;
         private final Boolean anonymous;
 
         private final Step INITIALISING = new Step("Performing initial steps.");
@@ -47,9 +51,11 @@ public class IssueFXForward {
                 INITIALISING, BUILDING, SIGNING, COLLECTING, FINALISING
         );
 
-        public Initiator(Amount<Currency> amount, Party lender, Boolean anonymous) {
-            this.amount = amount;
-            this.lender = lender;
+        public Initiator(Amount<Currency> base, Amount<Commodity> terms, Party buyer, Tenor tenor, Boolean anonymous) {
+            this.base = base;
+            this.terms = terms;
+            this.buyer = buyer;
+            this.tenor = tenor;
             this.anonymous = anonymous;
         }
 
@@ -64,7 +70,7 @@ public class IssueFXForward {
             // Step 1. Initialisation.
             progressTracker.setCurrentStep(INITIALISING);
             final FXForward FXForward = createObligation();
-            final PublicKey ourSigningKey = FXForward.getBorrower().getOwningKey();
+            final PublicKey ourSigningKey = FXForward.getSeller().getOwningKey();
 
             // Step 2. Building.
             progressTracker.setCurrentStep(BUILDING);
@@ -81,7 +87,7 @@ public class IssueFXForward {
 
             // Step 4. Get the counter-party signature.
             progressTracker.setCurrentStep(COLLECTING);
-            final FlowSession lenderFlow = initiateFlow(lender);
+            final FlowSession lenderFlow = initiateFlow(buyer);
             final SignedTransaction stx = subFlow(new CollectSignaturesFlow(
                     ptx,
                     ImmutableSet.of(lenderFlow),
@@ -97,22 +103,22 @@ public class IssueFXForward {
         @Suspendable
         private FXForward createObligation() throws FlowException {
             if (anonymous) {
-                final HashMap<Party, AnonymousParty> txKeys = subFlow(new SwapIdentitiesFlow(lender));
+                final HashMap<Party, AnonymousParty> txKeys = subFlow(new SwapIdentitiesFlow(buyer));
 
                 if (txKeys.size() != 2) {
                     throw new IllegalStateException("Something went wrong when generating confidential identities.");
                 } else if (!txKeys.containsKey(getOurIdentity())) {
                     throw new FlowException("Couldn't create our conf. identity.");
-                } else if (!txKeys.containsKey(lender)) {
-                    throw new FlowException("Couldn't create lender's conf. identity.");
+                } else if (!txKeys.containsKey(buyer)) {
+                    throw new FlowException("Couldn't create buyer's conf. identity.");
                 }
 
                 final AnonymousParty anonymousMe = txKeys.get(getOurIdentity());
-                final AnonymousParty anonymousLender = txKeys.get(lender);
+                final AnonymousParty anonymousLender = txKeys.get(buyer);
 
-                return new FXForward(amount, anonymousLender, anonymousMe);
+                return new FXForward(base, terms, anonymousLender, anonymousMe, tenor);
             } else {
-                return new FXForward(amount, lender, getOurIdentity());
+                return new FXForward(base, terms, buyer, getOurIdentity(), tenor);
             }
         }
     }

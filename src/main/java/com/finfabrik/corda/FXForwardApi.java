@@ -12,6 +12,8 @@ import net.corda.core.messaging.CordaRPCOps;
 import net.corda.core.messaging.FlowHandle;
 import net.corda.core.transactions.SignedTransaction;
 import net.corda.core.utilities.OpaqueBytes;
+import net.corda.finance.contracts.Commodity;
+import net.corda.finance.contracts.Tenor;
 import net.corda.finance.contracts.asset.Cash;
 import net.corda.finance.flows.AbstractCashFlow;
 import net.corda.finance.flows.CashIssueFlow;
@@ -27,12 +29,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import static java.util.stream.Collectors.*;
+import static java.util.stream.Collectors.toList;
 import static javax.ws.rs.core.Response.Status.BAD_REQUEST;
 import static javax.ws.rs.core.Response.Status.CREATED;
 import static net.corda.finance.contracts.GetBalances.getCashBalances;
 
-@Path("fxforward")
+@Path("crypto")
 public class FXForwardApi {
     private final CordaRPCOps rpcOps;
     private final Party myIdentity;
@@ -61,18 +63,7 @@ public class FXForwardApi {
     }
 
     @GET
-    @Path("owed-per-currency")
-    @Produces(MediaType.APPLICATION_JSON)
-    public Map<Currency, Long> owedPerCurrency() {
-        return rpcOps.vaultQuery(FXForward.class).getStates()
-                .stream()
-                .filter(it -> it.getState().getData().getLender() != myIdentity)
-                .map(it -> it.getState().getData().getAmount())
-                .collect(groupingBy(Amount::getToken, summingLong(Amount::getQuantity)));
-    }
-
-    @GET
-    @Path("contracts")
+    @Path("fxforwards")
     @Produces(MediaType.APPLICATION_JSON)
     public List<FXForward> obligations() {
         List<StateAndRef<FXForward>> statesAndRefs = rpcOps.vaultQuery(FXForward.class).getStates();
@@ -81,20 +72,22 @@ public class FXForwardApi {
                 .map(stateAndRef -> stateAndRef.getState().getData())
                 .map(state -> {
                     // We map the anonymous lender and borrower to well-known identities if possible.
-                    AbstractParty possiblyWellKnownLender = rpcOps.wellKnownPartyFromAnonymous(state.getLender());
+                    AbstractParty possiblyWellKnownLender = rpcOps.wellKnownPartyFromAnonymous(state.getBuyer());
                     if (possiblyWellKnownLender == null) {
-                        possiblyWellKnownLender = state.getLender();
+                        possiblyWellKnownLender = state.getBuyer();
                     }
 
-                    AbstractParty possiblyWellKnownBorrower = rpcOps.wellKnownPartyFromAnonymous(state.getBorrower());
+                    AbstractParty possiblyWellKnownBorrower = rpcOps.wellKnownPartyFromAnonymous(state.getSeller());
                     if (possiblyWellKnownBorrower == null) {
-                        possiblyWellKnownBorrower = state.getBorrower();
+                        possiblyWellKnownBorrower = state.getSeller();
                     }
 
                     return new FXForward(
-                            state.getAmount(),
+                            state.getBase(),
+                            state.getTerms(),
                             possiblyWellKnownLender,
                             possiblyWellKnownBorrower,
+                            state.getTenor(),
                             state.getLinearId());
                 })
                 .collect(toList());
@@ -144,9 +137,12 @@ public class FXForwardApi {
     @GET
     @Path("issue-fxforward")
     public Response issueObligation(
-            @QueryParam(value = "amount") int amount,
+            @QueryParam(value = "base") int base,
             @QueryParam(value = "currency") String currency,
-            @QueryParam(value = "party") String party) {
+            @QueryParam(value = "terms") int terms,
+            @QueryParam(value = "token") String token,
+            @QueryParam(value = "party") String party,
+            @QueryParam(value = "tenor") String tenorStr) {
 
         // 1. Get party objects for the counterparty.
         final Set<Party> lenderIdentities = rpcOps.partiesFromName(party, false);
@@ -154,16 +150,18 @@ public class FXForwardApi {
             final String errMsg = String.format("Found %d identities for the lender.", lenderIdentities.size());
             throw new IllegalStateException(errMsg);
         }
-        final Party lenderIdentity = lenderIdentities.iterator().next();
+        final Party buyer = lenderIdentities.iterator().next();
 
         // 2. Create an amount object.
-        final Amount issueAmount = new Amount<>((long) amount * 100, Currency.getInstance(currency));
+        final Amount tokenAmt = new Amount<>((long)base * 100, new Commodity(token, token, 0));
+        final Amount currencyAmt = new Amount<>((long) terms * 100, Currency.getInstance(currency));
 
+        Tenor tenor = new Tenor(tenorStr);
         // 3. Start the IssueFXForward flow. We block and wait for the flow to return.
         try {
             final FlowHandle<SignedTransaction> flowHandle = rpcOps.startFlowDynamic(
                     IssueFXForward.Initiator.class,
-                    issueAmount, lenderIdentity, true
+                currencyAmt, tokenAmt, buyer, tenor, true
             );
 
             final SignedTransaction result = flowHandle.getReturnValue().get();

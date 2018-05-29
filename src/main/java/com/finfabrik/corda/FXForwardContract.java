@@ -1,6 +1,5 @@
 package com.finfabrik.corda;
 
-import com.google.common.collect.Sets;
 import net.corda.core.contracts.*;
 import net.corda.core.identity.AbstractParty;
 import net.corda.core.transactions.LedgerTransaction;
@@ -25,10 +24,6 @@ public class FXForwardContract implements Contract {
     public interface Commands extends CommandData {
         class Issue extends TypeOnlyCommandData implements Commands {
         }
-
-        class Transfer extends TypeOnlyCommandData implements Commands {
-        }
-
         class Settle extends TypeOnlyCommandData implements Commands {
         }
     }
@@ -40,8 +35,6 @@ public class FXForwardContract implements Contract {
         final Set<PublicKey> setOfSigners = new HashSet<>(command.getSigners());
         if (commandData instanceof Commands.Issue) {
             verifyIssue(tx, setOfSigners);
-        } else if (commandData instanceof Commands.Transfer) {
-            verifyTransfer(tx, setOfSigners);
         } else if (commandData instanceof Commands.Settle) {
             verifySettle(tx, setOfSigners);
         } else {
@@ -63,25 +56,10 @@ public class FXForwardContract implements Contract {
                     tx.getInputStates().isEmpty());
             req.using("Only one FXForward state should be created when issuing an FXForward.", tx.getOutputStates().size() == 1);
             FXForward FXForward = (FXForward) tx.getOutputStates().get(0);
-            req.using("A newly issued FXForward must have a positive amount.", FXForward.getAmount().getQuantity() > 0);
-            req.using("The lender and borrower cannot be the same identity.", !FXForward.getBorrower().equals(FXForward.getLender()));
+            req.using("A newly issued FXForward must have a positive amount.", FXForward.getTerms().getQuantity() > 0);
+            req.using("The lender and borrower cannot be the same identity.", !FXForward.getSeller().equals(FXForward.getBuyer()));
             req.using("Both lender and borrower together only may sign FXForward issue transaction.",
                     signers.equals(keysFromParticipants(FXForward)));
-            return null;
-        });
-    }
-
-    // This only allows one obligation transfer per transaction.
-    private void verifyTransfer(LedgerTransaction tx, Set<PublicKey> signers) {
-        requireThat(req -> {
-            req.using("An obligation transfer transaction should only consume one input state.", tx.getInputs().size() == 1);
-            req.using("An obligation transfer transaction should only create one output state.", tx.getOutputs().size() == 1);
-            FXForward input = tx.inputsOfType(FXForward.class).get(0);
-            FXForward output = tx.outputsOfType(FXForward.class).get(0);
-            req.using("Only the lender property may change.", input.withoutLender().equals(output.withoutLender()));
-            req.using("The lender property must change in a transfer.", !input.getLender().equals(output.getLender()));
-            req.using("The borrower, old lender and new lender only must sign an obligation transfer transaction",
-                    signers.equals(Sets.union(keysFromParticipants(input), keysFromParticipants(output))));
             return null;
         });
     }
@@ -99,12 +77,12 @@ public class FXForwardContract implements Contract {
 
             // Check that the cash is being assigned to us.
             FXForward inputFXForward = FXForwardInputs.get(0);
-            List<Cash.State> acceptableCash = cash.stream().filter(it -> it.getOwner().equals(inputFXForward.getLender())).collect(Collectors.toList());
+            List<Cash.State> acceptableCash = cash.stream().filter(it -> it.getOwner().equals(inputFXForward.getBuyer())).collect(Collectors.toList());
             req.using("There must be output cash paid to the recipient.", !acceptableCash.isEmpty());
 
             // Sum the cash being sent to us (we don't care about the issuer).
             Amount<Currency> sumAcceptableCash = withoutIssuer(sumCash(acceptableCash));
-            Amount<Currency> amountOutstanding = inputFXForward.getAmount();
+            Amount<Currency> amountOutstanding = inputFXForward.getBase();
             req.using("The amount settled cannot be more than the amount outstanding.", amountOutstanding.compareTo(sumAcceptableCash) >= 0);
 
             List<FXForward> FXForwardOutputs = tx.outputsOfType(FXForward.class);
@@ -119,9 +97,9 @@ public class FXForwardContract implements Contract {
 
                 // Check only the paid property changes.
                 FXForward outputFXForward = FXForwardOutputs.get(0);
-                req.using("The amount may not change when settling.", inputFXForward.getAmount().equals(outputFXForward.getAmount()));
-                req.using("The borrower may not change when settling.", inputFXForward.getBorrower().equals(outputFXForward.getBorrower()));
-                req.using("The lender may not change when settling.", inputFXForward.getLender().equals(outputFXForward.getLender()));
+                req.using("The amount may not change when settling.", inputFXForward.getTerms().equals(outputFXForward.getTerms()));
+                req.using("The borrower may not change when settling.", inputFXForward.getSeller().equals(outputFXForward.getSeller()));
+                req.using("The lender may not change when settling.", inputFXForward.getBuyer().equals(outputFXForward.getBuyer()));
                 req.using("The linearId may not change when settling.", inputFXForward.getLinearId().equals(outputFXForward.getLinearId()));
             }
 

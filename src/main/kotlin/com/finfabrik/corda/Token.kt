@@ -7,9 +7,9 @@ import net.corda.core.identity.Party
 import net.corda.finance.contracts.Commodity
 
 
-data class TokenState(val amount: Amount<Commodity>,
-                      val owner: Party,
-                      override val linearId: UniqueIdentifier = UniqueIdentifier()): LinearState {
+data class Token(val amount: Amount<Commodity>,
+                 val owner: Party,
+                 override val linearId: UniqueIdentifier = UniqueIdentifier()): LinearState {
 
     override val participants: List<Party> get() = listOf(owner)
 

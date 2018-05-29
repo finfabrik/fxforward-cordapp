@@ -8,6 +8,8 @@ import net.corda.core.crypto.NullKeys;
 import net.corda.core.identity.AbstractParty;
 import net.corda.core.identity.Party;
 import net.corda.core.serialization.ConstructorForDeserialization;
+import net.corda.finance.contracts.Commodity;
+import net.corda.finance.contracts.Tenor;
 
 import java.security.PublicKey;
 import java.util.Currency;
@@ -18,38 +20,46 @@ import java.util.stream.Collectors;
 import static net.corda.core.utilities.EncodingUtils.toBase58String;
 
 public class FXForward implements LinearState {
-    private final Amount<Currency> amount;
-    private final AbstractParty lender;
-    private final AbstractParty borrower;
+    private final Amount<Currency> base;
+    private final Amount<Commodity> terms;
+    private final AbstractParty buyer;
+    private final AbstractParty seller;
+    private final Tenor tenor;
     private final UniqueIdentifier linearId;
 
     @ConstructorForDeserialization
-    public FXForward(Amount<Currency> amount, AbstractParty lender, AbstractParty borrower, UniqueIdentifier linearId) {
-        this.amount = amount;
-        this.lender = lender;
-        this.borrower = borrower;
+    public FXForward(Amount<Currency> base, Amount<Commodity> terms, AbstractParty buyer, AbstractParty seller, Tenor tenor, UniqueIdentifier linearId) {
+        this.base = base;
+        this.terms = terms;
+        this.buyer = buyer;
+        this.seller = seller;
+        this.tenor = tenor;
         this.linearId = linearId;
     }
 
-    public FXForward(Amount<Currency> amount, AbstractParty lender, AbstractParty borrower) {
-        this.amount = amount;
-        this.lender = lender;
-        this.borrower = borrower;
-        this.linearId = new UniqueIdentifier();
+    public FXForward(Amount<Currency> base, Amount<Commodity> terms, AbstractParty buyer, AbstractParty seller, Tenor tenor) {
+        this(base, terms, buyer, seller, tenor, new UniqueIdentifier());
     }
 
-    public Amount<Currency> getAmount() {
-        return amount;
+    public Amount<Currency> getBase() {
+        return base;
     }
 
-    public AbstractParty getLender() {
-        return lender;
+    public Amount<Commodity> getTerms() {
+        return terms;
     }
 
-    public AbstractParty getBorrower() {
-        return borrower;
+    public AbstractParty getBuyer() {
+        return buyer;
     }
 
+    public AbstractParty getSeller() {
+        return seller;
+    }
+
+    public Tenor getTenor() {
+        return tenor;
+    }
 
     @Override
     public UniqueIdentifier getLinearId() {
@@ -58,15 +68,15 @@ public class FXForward implements LinearState {
 
     @Override
     public List<AbstractParty> getParticipants() {
-        return ImmutableList.of(lender, borrower);
+        return ImmutableList.of(buyer, seller);
     }
 
-        public FXForward withNewLender(AbstractParty newLender) {
-        return new FXForward(this.amount, newLender, this.borrower, this.linearId);
+    public FXForward withNewLender(AbstractParty newLender) {
+        return new FXForward(this.base, this.terms, newLender, this.seller, this.tenor, this.linearId);
     }
 
     public FXForward withoutLender() {
-        return new FXForward(this.amount, NullKeys.INSTANCE.getNULL_PARTY(), this.borrower, this.linearId);
+        return new FXForward(this.base, this.terms, NullKeys.INSTANCE.getNULL_PARTY(), this.seller, this.tenor, this.linearId);
     }
 
     public List<PublicKey> getParticipantKeys() {
@@ -76,23 +86,23 @@ public class FXForward implements LinearState {
     @Override
     public String toString() {
         String lenderString;
-        if (this.lender instanceof Party) {
-            lenderString = ((Party) lender).getName().getOrganisation();
+        if (this.buyer instanceof Party) {
+            lenderString = ((Party) buyer).getName().getOrganisation();
         } else {
-            PublicKey lenderKey = this.lender.getOwningKey();
+            PublicKey lenderKey = this.buyer.getOwningKey();
             lenderString = toBase58String(lenderKey);
         }
 
         String borrowerString;
-        if (this.borrower instanceof Party) {
-            borrowerString = ((Party) borrower).getName().getOrganisation();
+        if (this.seller instanceof Party) {
+            borrowerString = ((Party) seller).getName().getOrganisation();
         } else {
-            PublicKey borrowerKey = this.borrower.getOwningKey();
+            PublicKey borrowerKey = this.seller.getOwningKey();
             borrowerString = toBase58String(borrowerKey);
         }
 
-        return String.format("FXForward(%s): %s owes %s %s.",
-                this.linearId, borrowerString, lenderString, this.amount);
+        return String.format("FXForward(%s): %s owes %s %s %s %s.",
+            this.linearId, borrowerString, lenderString, this.base, this.terms, this.tenor);
     }
 
     @Override
@@ -101,14 +111,16 @@ public class FXForward implements LinearState {
             return false;
         }
         FXForward other = (FXForward) obj;
-        return amount.equals(other.getAmount())
-                && lender.equals(other.getLender())
-                && borrower.equals(other.getBorrower())
-                && linearId.equals(other.getLinearId());
+        return base.equals(other.getBase())
+            && terms.equals(other.getTerms())
+            && buyer.equals(other.getBuyer())
+            && seller.equals(other.getSeller())
+            && tenor.equals(other.getTenor())
+            && linearId.equals(other.getLinearId());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(amount, lender, borrower, linearId);
+        return Objects.hash(base, terms, buyer, seller, linearId);
     }
 }

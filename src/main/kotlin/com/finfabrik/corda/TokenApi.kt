@@ -66,14 +66,14 @@ class TokenApi(val rpcOps: CordaRPCOps) {
      * Task 1
      * Displays all Token states that exist in the node's vault.
      * TODO: Return a list of TokenStates on ledger
-     * Hint - Use [rpcOps] to query the vault all unconsumed [TokenState]s
+     * Hint - Use [rpcOps] to query the vault all unconsumed [Token]s
      */
     @GET
     @Path("tokens")
     @Produces(MediaType.APPLICATION_JSON)
     fun getTokens(): List<StateAndRef<ContractState>> {
         // Filter by state type: Token.
-        return rpcOps.vaultQueryBy<TokenState>().states
+        return rpcOps.vaultQueryBy<Token>().states
     }
 
     /**
@@ -107,7 +107,7 @@ class TokenApi(val rpcOps: CordaRPCOps) {
         val me = rpcOps.nodeInfo().legalIdentities.first()
         // Create a new Token state using the parameters given.
         try {
-            val state = TokenState(Amount(amount.toLong() * 1000, Commodity(token, token)), me)
+            val state = Token(Amount(amount.toLong() * 1000, Commodity(token, token)), me)
             // Start the TokenIssueFlow. We block and waits for the flow to return.
             val result = rpcOps.startTrackedFlow(::TokenIssueFlow, state).returnValue.get()
             // Return the response.
@@ -132,7 +132,12 @@ class TokenApi(val rpcOps: CordaRPCOps) {
     fun transferToken(@QueryParam(value = "id") id: String,
                       @QueryParam(value = "party") party: String): Response {
         val linearId = UniqueIdentifier.fromString(id)
-        val newLender = rpcOps.wellKnownPartyFromX500Name(CordaX500Name.parse(party)) ?: throw IllegalArgumentException("Unknown party name.")
+        val lenderIdentities = rpcOps.partiesFromName(party, false)
+        if (lenderIdentities.size != 1) {
+            val errMsg = String.format("Found %d identities for the new lender.", lenderIdentities.size)
+            throw IllegalStateException(errMsg)
+        }
+        val newLender = lenderIdentities.iterator().next()
         try {
             rpcOps.startFlow(::TokenTransferFlow, linearId, newLender).returnValue.get()
             return Response.status(Response.Status.CREATED).entity("Token $id transferred to $party.").build()

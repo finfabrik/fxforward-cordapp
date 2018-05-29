@@ -1,0 +1,244 @@
+{
+	"info": {
+		"_postman_id": "3ef494a6-058e-480d-9901-15fd2b593256",
+		"name": "FXForward-Cordapp",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "FinCo:Dispaly",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"body": {},
+				"url": {
+					"raw": "localhost:10007/api/token/me",
+					"host": [
+						"localhost"
+					],
+					"port": "10007",
+					"path": [
+						"api",
+						"token",
+						"me"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "FinCo:IssueBTC",
+			"request": {
+				"method": "PUT",
+				"header": [],
+				"body": {},
+				"url": {
+					"raw": "localhost:10007/api/token/issue-token?token=BTC&amount=100",
+					"host": [
+						"localhost"
+					],
+					"port": "10007",
+					"path": [
+						"api",
+						"token",
+						"issue-token"
+					],
+					"query": [
+						{
+							"key": "token",
+							"value": "BTC"
+						},
+						{
+							"key": "amount",
+							"value": "100"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "FinCo:QueryTokens",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"body": {},
+				"url": {
+					"raw": "localhost:10007/api/token/tokens",
+					"host": [
+						"localhost"
+					],
+					"port": "10007",
+					"path": [
+						"api",
+						"token",
+						"tokens"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "FinCo:TransferToken",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"body": {},
+				"url": {
+					"raw": "localhost:10007/api/token/transfer-token?id=cfea02cd-eb36-4621-b454-378914529a6b&party=C=US,L=New York,O=FabBank",
+					"host": [
+						"localhost"
+					],
+					"port": "10007",
+					"path": [
+						"api",
+						"token",
+						"transfer-token"
+					],
+					"query": [
+						{
+							"key": "id",
+							"value": "cfea02cd-eb36-4621-b454-378914529a6b"
+						},
+						{
+							"key": "party",
+							"value": "C=US,L=New York,O=FabBank"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "FinCo:QueryFXForward",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"body": {},
+				"url": {
+					"raw": "localhost:10007/api/crypto/fxforwards",
+					"host": [
+						"localhost"
+					],
+					"port": "10007",
+					"path": [
+						"api",
+						"crypto",
+						"fxforwards"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "FabBank:Dispaly",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"body": {},
+				"url": {
+					"raw": "localhost:10011/api/token/me",
+					"host": [
+						"localhost"
+					],
+					"port": "10011",
+					"path": [
+						"api",
+						"token",
+						"me"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "FabBank:QueryTokens",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"body": {},
+				"url": {
+					"raw": "localhost:10011/api/token/tokens",
+					"host": [
+						"localhost"
+					],
+					"port": "10011",
+					"path": [
+						"api",
+						"token",
+						"tokens"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "FabBank:IssueForward",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"body": {},
+				"url": {
+					"raw": "localhost:10011/api/crypto/issue-fxforward?base=100&currency=USD&terms=100&token=BTC&party=FinCo&tenor=6M",
+					"host": [
+						"localhost"
+					],
+					"port": "10011",
+					"path": [
+						"api",
+						"crypto",
+						"issue-fxforward"
+					],
+					"query": [
+						{
+							"key": "base",
+							"value": "100"
+						},
+						{
+							"key": "currency",
+							"value": "USD"
+						},
+						{
+							"key": "terms",
+							"value": "100"
+						},
+						{
+							"key": "token",
+							"value": "BTC"
+						},
+						{
+							"key": "party",
+							"value": "FinCo"
+						},
+						{
+							"key": "tenor",
+							"value": "6M"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "FabBack:QueryFXForward",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"body": {},
+				"url": {
+					"raw": "localhost:10011/api/crypto/fxforwards",
+					"host": [
+						"localhost"
+					],
+					"port": "10011",
+					"path": [
+						"api",
+						"crypto",
+						"fxforwards"
+					]
+				}
+			},
+			"response": []
+		}
+	]
+}

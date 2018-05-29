@@ -2,7 +2,7 @@ package com.finfabrik.corda.flows
 
 import co.paralleluniverse.fibers.Suspendable
 import com.finfabrik.corda.TokenContract
-import com.finfabrik.corda.TokenState
+import com.finfabrik.corda.Token
 import net.corda.core.contracts.Command
 import net.corda.core.contracts.requireThat
 import net.corda.core.flows.*
@@ -12,7 +12,7 @@ import net.corda.core.transactions.TransactionBuilder
 
 @InitiatingFlow
 @StartableByRPC
-class TokenIssueFlow(val state: TokenState): FlowLogic<SignedTransaction>() {
+class TokenIssueFlow(val state: Token): FlowLogic<SignedTransaction>() {
     @Suspendable
     override fun call(): SignedTransaction {
         // Step 1. Get a reference to the notary service on our network and our key pair.
@@ -54,7 +54,7 @@ class TokenIssueFlowResponder(val flowSession: FlowSession): FlowLogic<Unit>() {
         val signedTransactionFlow = object : SignTransactionFlow(flowSession) {
             override fun checkTransaction(stx: SignedTransaction) = requireThat {
                 val output = stx.tx.outputs.single().data
-                "This must be an Token transaction" using (output is TokenState)
+                "This must be an Token transaction" using (output is Token)
             }
         }
         subFlow(signedTransactionFlow)

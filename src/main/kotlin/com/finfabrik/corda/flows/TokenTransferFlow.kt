@@ -2,7 +2,7 @@ package com.finfabrik.corda.flows
 
 import co.paralleluniverse.fibers.Suspendable
 import com.finfabrik.corda.TokenContract
-import com.finfabrik.corda.TokenState
+import com.finfabrik.corda.Token
 import net.corda.core.contracts.Command
 import net.corda.core.contracts.StateAndContract
 import net.corda.core.contracts.UniqueIdentifier
@@ -23,7 +23,7 @@ class TokenTransferFlow(val linearId: UniqueIdentifier,
     override fun call(): SignedTransaction {
         // Stage 1. Retrieve Token specified by linearId from the vault.
         val queryCriteria = QueryCriteria.LinearStateQueryCriteria(linearId = listOf(linearId))
-        val TokenStateAndRef =  serviceHub.vaultService.queryBy<TokenState>(queryCriteria).states.single()
+        val TokenStateAndRef =  serviceHub.vaultService.queryBy<Token>(queryCriteria).states.single()
         val inputToken = TokenStateAndRef.state.data
 
         // Stage 2. This flow can only be initiated by the current recipient.
@@ -73,7 +73,7 @@ class TokenTransferFlowResponder(val flowSession: FlowSession): FlowLogic<Unit>(
         val signedTransactionFlow = object : SignTransactionFlow(flowSession) {
             override fun checkTransaction(stx: SignedTransaction) = requireThat {
                 val output = stx.tx.outputs.single().data
-                "This must be an Token transaction" using (output is TokenState)
+                "This must be an Token transaction" using (output is Token)
             }
         }
 
