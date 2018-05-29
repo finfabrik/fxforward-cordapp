@@ -69,7 +69,7 @@ public class IssueFXForward {
         public SignedTransaction call() throws FlowException {
             // Step 1. Initialisation.
             progressTracker.setCurrentStep(INITIALISING);
-            final FXForward FXForward = createObligation();
+            final FXForward FXForward = createForward();
             final PublicKey ourSigningKey = FXForward.getSeller().getOwningKey();
 
             // Step 2. Building.
@@ -77,7 +77,7 @@ public class IssueFXForward {
             final List<PublicKey> requiredSigners = FXForward.getParticipantKeys();
 
             final TransactionBuilder utx = new TransactionBuilder(getFirstNotary())
-                    .addOutputState(FXForward, FXForwardContract.OBLIGATION_CONTRACT_ID)
+                    .addOutputState(FXForward, FXForwardContract.FORWARD_CONTRACT_ID)
                     .addCommand(new FXForwardContract.Commands.Issue(), requiredSigners)
                     .setTimeWindow(getServiceHub().getClock().instant(), Duration.ofSeconds(30));
 
@@ -101,7 +101,7 @@ public class IssueFXForward {
         }
 
         @Suspendable
-        private FXForward createObligation() throws FlowException {
+        private FXForward createForward() throws FlowException {
             if (anonymous) {
                 final HashMap<Party, AnonymousParty> txKeys = subFlow(new SwapIdentitiesFlow(buyer));
 

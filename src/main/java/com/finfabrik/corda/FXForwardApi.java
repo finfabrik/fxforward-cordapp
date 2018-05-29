@@ -65,7 +65,7 @@ public class FXForwardApi {
     @GET
     @Path("fxforwards")
     @Produces(MediaType.APPLICATION_JSON)
-    public List<FXForward> obligations() {
+    public List<FXForward> forwards() {
         List<StateAndRef<FXForward>> statesAndRefs = rpcOps.vaultQuery(FXForward.class).getStates();
 
         return statesAndRefs.stream()
@@ -136,7 +136,7 @@ public class FXForwardApi {
 
     @GET
     @Path("issue-fxforward")
-    public Response issueObligation(
+    public Response issueForward(
             @QueryParam(value = "base") int base,
             @QueryParam(value = "currency") String currency,
             @QueryParam(value = "terms") int terms,
@@ -175,20 +175,17 @@ public class FXForwardApi {
 
     @GET
     @Path("settle-fxforward")
-    public Response settleObligation(
-            @QueryParam(value = "id") String id,
-            @QueryParam(value = "amount") int amount,
-            @QueryParam(value = "currency") String currency) {
+    public Response settleForward(
+            @QueryParam(value = "id") String id) {
         UniqueIdentifier linearId = UniqueIdentifier.Companion.fromString(id);
-        Amount<Currency> settleAmount = new Amount<>((long) amount * 100, Currency.getInstance(currency));
 
         try {
             final FlowHandle flowHandle = rpcOps.startFlowDynamic(
                     SettleFXForward.Initiator.class,
-                    linearId, settleAmount, true);
+                    linearId, true);
 
             flowHandle.getReturnValue().get();
-            final String msg = String.format("%s %s paid off on obligation id %s.", amount, currency, id);
+            final String msg = String.format("forward id %s settled", id);
             return Response.status(CREATED).entity(msg).build();
         } catch (Exception e) {
             return Response.status(BAD_REQUEST).entity(e.getMessage()).build();

@@ -19,7 +19,7 @@ import static net.corda.core.contracts.Structures.withoutIssuer;
 import static net.corda.finance.utils.StateSumming.sumCash;
 
 public class FXForwardContract implements Contract {
-    public static final String OBLIGATION_CONTRACT_ID = "com.finfabrik.corda.FXForwardContract";
+    public static final String FORWARD_CONTRACT_ID = "com.finfabrik.corda.FXForwardContract";
 
     public interface Commands extends CommandData {
         class Issue extends TypeOnlyCommandData implements Commands {
@@ -49,7 +49,7 @@ public class FXForwardContract implements Contract {
                 .collect(toSet());
     }
 
-    // This only allows one obligation issuance per transaction.
+    // This only allows one forward issuance per transaction.
     private void verifyIssue(LedgerTransaction tx, Set<PublicKey> signers) {
         requireThat(req -> {
             req.using("No inputs should be consumed when issuing an FXForward.",
@@ -66,9 +66,9 @@ public class FXForwardContract implements Contract {
 
     private void verifySettle(LedgerTransaction tx, Set<PublicKey> signers) {
         requireThat(req -> {
-            // Check for the presence of an input obligation state.
+            // Check for the presence of an input forward state.
             List<FXForward> FXForwardInputs = tx.inputsOfType(FXForward.class);
-            req.using("There must be one input obligation.", FXForwardInputs.size() == 1);
+            req.using("There must be one input forward.", FXForwardInputs.size() == 1);
 
             // Check there are output cash states.
             // We don't care about cash inputs, the Cash contract handles those.
@@ -77,23 +77,23 @@ public class FXForwardContract implements Contract {
 
             // Check that the cash is being assigned to us.
             FXForward inputFXForward = FXForwardInputs.get(0);
-            List<Cash.State> acceptableCash = cash.stream().filter(it -> it.getOwner().equals(inputFXForward.getBuyer())).collect(Collectors.toList());
-            req.using("There must be output cash paid to the recipient.", !acceptableCash.isEmpty());
+            List<Cash.State> buyerPaid = cash.stream().filter(it -> it.getOwner().equals(inputFXForward.getBuyer())).collect(Collectors.toList());
+            req.using("There must be output cash paid to the recipient.", !buyerPaid.isEmpty());
 
             // Sum the cash being sent to us (we don't care about the issuer).
-            Amount<Currency> sumAcceptableCash = withoutIssuer(sumCash(acceptableCash));
-            Amount<Currency> amountOutstanding = inputFXForward.getBase();
-            req.using("The amount settled cannot be more than the amount outstanding.", amountOutstanding.compareTo(sumAcceptableCash) >= 0);
+            Amount<Currency> sumPaid = withoutIssuer(sumCash(buyerPaid));
+            Amount<Currency> amountToSettle = inputFXForward.getBase();
+            req.using("The amount settled cannot be more than the amount outstanding.", amountToSettle.compareTo(sumPaid) >= 0);
 
             List<FXForward> FXForwardOutputs = tx.outputsOfType(FXForward.class);
 
-            // Check to see if we need an output obligation or not.
-            if (amountOutstanding.equals(sumAcceptableCash)) {
-                // If the obligation has been fully settled then there should be no obligation output state.
-                req.using("There must be no output obligation as it has been fully settled.", FXForwardOutputs.isEmpty());
+            // Check to see if we need an output forward or not.
+            if (amountToSettle.equals(sumPaid)) {
+                // If the forward has been fully settled then there should be no forward output state.
+                req.using("There must be no output forward as it has been fully settled.", FXForwardOutputs.isEmpty());
             } else {
-                // If the obligation has been partially settled then it should still exist.
-                req.using("There must be one output obligation.", FXForwardOutputs.size() == 1);
+                // If the forward has been partially settled then it should still exist.
+                req.using("There must be one output forward.", FXForwardOutputs.size() == 1);
 
                 // Check only the paid property changes.
                 FXForward outputFXForward = FXForwardOutputs.get(0);
@@ -104,7 +104,7 @@ public class FXForwardContract implements Contract {
             }
 
             // Checks the required parties have signed.
-            req.using("Both lender and borrower together only must sign obligation settle transaction.", signers.equals(keysFromParticipants(inputFXForward)));
+            req.using("Both lender and borrower together only must sign forward settle transaction.", signers.equals(keysFromParticipants(inputFXForward)));
             return null;
         });
     }

@@ -17,10 +17,6 @@ import net.corda.core.utilities.ProgressTracker;
 
 import java.util.List;
 
-/**
- * An abstract FlowLogic class that is subclassed by the obligation flows to
- * provide helper methods and classes.
- */
 abstract class FXForwardBaseFlow extends FlowLogic<SignedTransaction> {
 
     Party getFirstNotary() throws FlowException {
@@ -31,18 +27,18 @@ abstract class FXForwardBaseFlow extends FlowLogic<SignedTransaction> {
         return notaries.get(0);
     }
 
-    StateAndRef<FXForward> getObligationByLinearId(UniqueIdentifier linearId) throws FlowException {
+    StateAndRef<FXForward> getForwardByLinearId(UniqueIdentifier linearId) throws FlowException {
         QueryCriteria queryCriteria = new QueryCriteria.LinearStateQueryCriteria(
                 null,
                 ImmutableList.of(linearId),
                 Vault.StateStatus.UNCONSUMED,
                 null);
 
-        List<StateAndRef<FXForward>> obligations = getServiceHub().getVaultService().queryBy(FXForward.class, queryCriteria).getStates();
-        if (obligations.size() != 1) {
+        List<StateAndRef<FXForward>> forwards = getServiceHub().getVaultService().queryBy(FXForward.class, queryCriteria).getStates();
+        if (forwards.size() != 1) {
             throw new FlowException(String.format("FXForward with id %s not found.", linearId));
         }
-        return obligations.get(0);
+        return forwards.get(0);
     }
 
     Party resolveIdentity(AbstractParty abstractParty) {

@@ -3,6 +3,7 @@ package com.finfabrik.corda.flows;
 import co.paralleluniverse.fibers.Suspendable;
 import com.finfabrik.corda.FXForward;
 import com.finfabrik.corda.FXForwardContract;
+import com.finfabrik.corda.flows.FXForwardBaseFlow.SignTxFlowNoChecking;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import net.corda.confidential.IdentitySyncFlow;
@@ -16,8 +17,6 @@ import net.corda.core.transactions.SignedTransaction;
 import net.corda.core.transactions.TransactionBuilder;
 import net.corda.core.utilities.ProgressTracker;
 import net.corda.core.utilities.ProgressTracker.Step;
-import com.finfabrik.corda.flows.FXForwardBaseFlow.SignTxFlowNoChecking;
-import net.corda.finance.contracts.Commodity;
 import net.corda.finance.contracts.asset.Cash;
 
 import java.security.PublicKey;
@@ -31,8 +30,6 @@ public class SettleFXForward {
     @StartableByRPC
     public static class Initiator extends FXForwardBaseFlow {
         private final UniqueIdentifier linearId;
-        private final Amount<Currency> base;
-        private final Amount<Commodity> terms;
         private final Boolean anonymous;
 
         private final Step PREPARATION = new Step("Obtaining IOU from vault.");
@@ -55,10 +52,8 @@ public class SettleFXForward {
                 PREPARATION, BUILDING, SIGNING, COLLECTING, FINALISING
         );
 
-        public Initiator(UniqueIdentifier linearId, Amount<Currency> base, Amount<Commodity> terms, Boolean anonymous) {
+        public Initiator(UniqueIdentifier linearId, Boolean anonymous) {
             this.linearId = linearId;
-            this.base = base;
-            this.terms = terms;
             this.anonymous = anonymous;
         }
 
@@ -70,52 +65,52 @@ public class SettleFXForward {
         @Suspendable
         @Override
         public SignedTransaction call() throws FlowException {
-            // Stage 1. Retrieve obligation specified by linearId from the vault.
+            // Stage 1. Retrieve forward specified by linearId from the vault.
             progressTracker.setCurrentStep(PREPARATION);
-            final StateAndRef<FXForward> obligationToSettle = getObligationByLinearId(linearId);
-            final FXForward inputFXForward = obligationToSettle.getState().getData();
+            final StateAndRef<FXForward> contractToSettle = getForwardByLinearId(linearId);
+            final FXForward inputFXForward = contractToSettle.getState().getData();
 
-            // Stage 2. Resolve the lender and borrower identity if the obligation is anonymous.
-            final Party borrowerIdentity = resolveIdentity(inputFXForward.getSeller());
-            final Party lenderIdentity = resolveIdentity(inputFXForward.getBuyer());
+            // Stage 2. Resolve the seller and buyer identity if the contract is anonymous.
+            final Party sellerIdentity = resolveIdentity(inputFXForward.getSeller());
+            final Party buyerIdentity = resolveIdentity(inputFXForward.getBuyer());
 
             // Stage 3. This flow can only be initiated by the current recipient.
-            if (!borrowerIdentity.equals(getOurIdentity())) {
-                throw new FlowException("Settle FXForward flow must be initiated by the borrower.");
+            if (!sellerIdentity.equals(getOurIdentity())) {
+                throw new FlowException("Settle FXForward flow must be initiated by the seller.");
             }
 
             // Stage 4. Check we have enough cash to settle the requested base.
-            final Amount<Currency> cashBalance = getCashBalance(getServiceHub(), base.getToken());
-            final Amount<Currency> amountLeftToSettle = inputFXForward.getBase();
+            Amount<Currency> cashToSettle = inputFXForward.getBase();
+            final Amount<Currency> cashBalance = getCashBalance(getServiceHub(), cashToSettle.getToken());
             if (cashBalance.getQuantity() <= 0L) {
-                throw new FlowException(String.format("Borrower has no %s to settle.", base.getToken()));
-            } else if (cashBalance.getQuantity() < base.getQuantity()) {
+                throw new FlowException(String.format("Seller has no %s to settle.", cashToSettle.getToken()));
+            } else if (cashBalance.getQuantity() < cashToSettle.getQuantity()) {
                 throw new FlowException(String.format(
-                        "Borrower has only %s but needs %s to settle.", cashBalance, base));
-            } else if (amountLeftToSettle.getQuantity() < base.getQuantity()) {
+                        "Seller has only %s but needs %s to settle.", cashBalance, cashToSettle));
+            } else if (cashToSettle.getQuantity() < cashToSettle.getQuantity()) {
                 throw new FlowException(String.format(
-                        "There's only %s left to settle but you pledged %s.", amountLeftToSettle, base));
+                        "There's only %s left to settle but you pledged %s.", cashToSettle, cashToSettle));
             }
 
             // Stage 5. Create a settle command.
             final List<PublicKey> requiredSigners = inputFXForward.getParticipantKeys();
             final Command settleCommand = new Command<>(new FXForwardContract.Commands.Settle(), requiredSigners);
 
-            // Stage 6. Create a transaction builder. Add the settle command and input obligation.
+            // Stage 6. Create a transaction builder. Add the settle command and input forward.
             progressTracker.setCurrentStep(BUILDING);
             final TransactionBuilder builder = new TransactionBuilder(getFirstNotary())
-                    .addInputState(obligationToSettle)
+                    .addInputState(contractToSettle)
                     .addCommand(settleCommand);
 
             // Stage 7. Get some cash from the vault and add a spend to our transaction builder.
             final List<PublicKey> cashSigningKeys = Cash.generateSpend(
                     getServiceHub(),
                     builder,
-                base,
+                    cashToSettle,
                     inputFXForward.getBuyer(),
                     ImmutableSet.of()).getSecond();
 
-            // Stage 8. Only add an output obligation state if the obligation has not been fully settled.
+            // Stage 8. Only add an output forward state if the forward has not been fully settled.
 
             // Stage 9. Verify and sign the transaction.
             progressTracker.setCurrentStep(SIGNING);
@@ -128,7 +123,7 @@ public class SettleFXForward {
 
             // Stage 10. Get counterparty signature.
             progressTracker.setCurrentStep(COLLECTING);
-            final FlowSession session = initiateFlow(lenderIdentity);
+            final FlowSession session = initiateFlow(buyerIdentity);
             subFlow(new IdentitySyncFlow.Send(session, ptx.getTx()));
             final SignedTransaction stx = subFlow(new CollectSignaturesFlow(
                     ptx,
