@@ -1,7 +1,7 @@
 package com.finfabrik.corda;
 
+import com.finfabrik.corda.flows.IssueFXForward;
 import com.finfabrik.corda.flows.SettleFXForward;
-import com.finfabrik.corda.flows.TransferFXForward;
 import com.google.common.collect.ImmutableMap;
 import net.corda.core.contracts.Amount;
 import net.corda.core.contracts.StateAndRef;
@@ -12,7 +12,6 @@ import net.corda.core.messaging.CordaRPCOps;
 import net.corda.core.messaging.FlowHandle;
 import net.corda.core.transactions.SignedTransaction;
 import net.corda.core.utilities.OpaqueBytes;
-import com.finfabrik.corda.flows.IssueFXForward;
 import net.corda.finance.contracts.asset.Cash;
 import net.corda.finance.flows.AbstractCashFlow;
 import net.corda.finance.flows.CashIssueFlow;
@@ -23,7 +22,10 @@ import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
-import java.util.*;
+import java.util.Currency;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import static java.util.stream.Collectors.*;
 import static javax.ws.rs.core.Response.Status.BAD_REQUEST;
@@ -70,7 +72,7 @@ public class FXForwardApi {
     }
 
     @GET
-    @Path("obligations")
+    @Path("contracts")
     @Produces(MediaType.APPLICATION_JSON)
     public List<FXForward> obligations() {
         List<StateAndRef<FXForward>> statesAndRefs = rpcOps.vaultQuery(FXForward.class).getStates();
@@ -113,7 +115,7 @@ public class FXForwardApi {
     }
 
     @GET
-    @Path("self-issue-cash")
+    @Path("issue-currency")
     public Response selfIssueCash(
             @QueryParam(value = "amount") int amount,
             @QueryParam(value = "currency") String currency) {
@@ -140,7 +142,7 @@ public class FXForwardApi {
     }
 
     @GET
-    @Path("issue-obligation")
+    @Path("issue-fxforward")
     public Response issueObligation(
             @QueryParam(value = "amount") int amount,
             @QueryParam(value = "currency") String currency,
@@ -174,34 +176,7 @@ public class FXForwardApi {
     }
 
     @GET
-    @Path("transfer-obligation")
-    public Response transferObligation(
-            @QueryParam(value = "id") String id,
-            @QueryParam(value = "party") String party) {
-        final UniqueIdentifier linearId = UniqueIdentifier.Companion.fromString(id);
-
-        final Set<Party> newLenders = rpcOps.partiesFromName(party, false);
-        if (newLenders.size() != 1) {
-            final String errMsg = String.format("Found %d identities for the new lender.", newLenders.size());
-            throw new IllegalStateException(errMsg);
-        }
-        final Party newLender = newLenders.iterator().next();
-
-        try {
-            final FlowHandle flowHandle = rpcOps.startFlowDynamic(
-                    TransferFXForward.Initiator.class,
-                    linearId, newLender, true);
-
-            flowHandle.getReturnValue().get();
-            final String msg = String.format("FXForward %s transferred to %s.", id, party);
-            return Response.status(CREATED).entity(msg).build();
-        } catch (Exception e) {
-            return Response.status(BAD_REQUEST).entity(e.getMessage()).build();
-        }
-    }
-
-    @GET
-    @Path("settle-obligation")
+    @Path("settle-fxforward")
     public Response settleObligation(
             @QueryParam(value = "id") String id,
             @QueryParam(value = "amount") int amount,
