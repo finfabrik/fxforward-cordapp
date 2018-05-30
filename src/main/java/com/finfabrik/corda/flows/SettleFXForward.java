@@ -3,23 +3,23 @@ package com.finfabrik.corda.flows;
 import co.paralleluniverse.fibers.Suspendable;
 import com.finfabrik.corda.FXForward;
 import com.finfabrik.corda.FXForwardContract;
-import com.finfabrik.corda.flows.FXForwardBaseFlow.SignTxFlowNoChecking;
+import com.finfabrik.corda.Token;
+import com.finfabrik.corda.TokenContract;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import net.corda.confidential.IdentitySyncFlow;
-import net.corda.core.contracts.Amount;
-import net.corda.core.contracts.Command;
-import net.corda.core.contracts.StateAndRef;
-import net.corda.core.contracts.UniqueIdentifier;
+import net.corda.core.contracts.*;
 import net.corda.core.flows.*;
 import net.corda.core.identity.Party;
 import net.corda.core.transactions.SignedTransaction;
 import net.corda.core.transactions.TransactionBuilder;
 import net.corda.core.utilities.ProgressTracker;
 import net.corda.core.utilities.ProgressTracker.Step;
+import net.corda.core.utilities.UntrustworthyData;
 import net.corda.finance.contracts.asset.Cash;
 
 import java.security.PublicKey;
+import java.util.Collections;
 import java.util.Currency;
 import java.util.List;
 
@@ -29,7 +29,8 @@ public class SettleFXForward {
     @InitiatingFlow
     @StartableByRPC
     public static class Initiator extends FXForwardBaseFlow {
-        private final UniqueIdentifier linearId;
+        private final UniqueIdentifier contractId;
+        private final UniqueIdentifier tokenId;
         private final Boolean anonymous;
 
         private final Step PREPARATION = new Step("Obtaining IOU from vault.");
@@ -52,8 +53,9 @@ public class SettleFXForward {
                 PREPARATION, BUILDING, SIGNING, COLLECTING, FINALISING
         );
 
-        public Initiator(UniqueIdentifier linearId, Boolean anonymous) {
-            this.linearId = linearId;
+        public Initiator(UniqueIdentifier contractId, UniqueIdentifier tokenId, Boolean anonymous) {
+            this.contractId = contractId;
+            this.tokenId = tokenId;
             this.anonymous = anonymous;
         }
 
@@ -65,21 +67,18 @@ public class SettleFXForward {
         @Suspendable
         @Override
         public SignedTransaction call() throws FlowException {
-            // Stage 1. Retrieve forward specified by linearId from the vault.
+
             progressTracker.setCurrentStep(PREPARATION);
-            final StateAndRef<FXForward> contractToSettle = getForwardByLinearId(linearId);
+            final StateAndRef<FXForward> contractToSettle = getForwardByLinearId(contractId);
             final FXForward inputFXForward = contractToSettle.getState().getData();
 
-            // Stage 2. Resolve the seller and buyer identity if the contract is anonymous.
             final Party sellerIdentity = resolveIdentity(inputFXForward.getSeller());
             final Party buyerIdentity = resolveIdentity(inputFXForward.getBuyer());
 
-            // Stage 3. This flow can only be initiated by the current recipient.
             if (!sellerIdentity.equals(getOurIdentity())) {
                 throw new FlowException("Settle FXForward flow must be initiated by the seller.");
             }
 
-            // Stage 4. Check we have enough cash to settle the requested base.
             Amount<Currency> cashToSettle = inputFXForward.getBase();
             final Amount<Currency> cashBalance = getCashBalance(getServiceHub(), cashToSettle.getToken());
             if (cashBalance.getQuantity() <= 0L) {
@@ -93,18 +92,26 @@ public class SettleFXForward {
             }
 
             FlowSession buyerSession = initiateFlow(buyerIdentity);
+            buyerSession.send(tokenId);
+            List<StateAndRef<Token>> stateAndRefs = subFlow(new ReceiveStateAndRefFlow<Token>(buyerSession));
 
-            // Stage 5. Create a settle command.
+            StateAndRef<Token> tokenInput = stateAndRefs.get(0);
+            Token token = tokenInput.getState().getData();
+            Token ourToken = token.withNewOwner(sellerIdentity);
+
             final List<PublicKey> requiredSigners = inputFXForward.getParticipantKeys();
             final Command settleCommand = new Command<>(new FXForwardContract.Commands.Settle(), requiredSigners);
 
-            // Stage 6. Create a transaction builder. Add the settle command and input forward.
+            final Command<TokenContract.Commands.Transfer> transferCommand = new Command<>(new TokenContract.Commands.Transfer(), requiredSigners);
+
             progressTracker.setCurrentStep(BUILDING);
             final TransactionBuilder builder = new TransactionBuilder(getFirstNotary())
+                    .addInputState(tokenInput)
+                    .addCommand(transferCommand)
+                    .addOutputState(ourToken, TokenContract.Companion.getToken_CONTRACT_ID())
                     .addInputState(contractToSettle)
                     .addCommand(settleCommand);
 
-            // Stage 7. Get some cash from the vault and add a spend to our transaction builder.
             final List<PublicKey> cashSigningKeys = Cash.generateSpend(
                     getServiceHub(),
                     builder,
@@ -112,9 +119,6 @@ public class SettleFXForward {
                     inputFXForward.getBuyer(),
                     ImmutableSet.of()).getSecond();
 
-            // Stage 8. Only add an output forward state if the forward has not been fully settled.
-
-            // Stage 9. Verify and sign the transaction.
             progressTracker.setCurrentStep(SIGNING);
             builder.verify(getServiceHub());
             final List<PublicKey> signingKeys = new ImmutableList.Builder<PublicKey>()
@@ -123,7 +127,6 @@ public class SettleFXForward {
                     .build();
             final SignedTransaction ptx = getServiceHub().signInitialTransaction(builder, signingKeys);
 
-            // Stage 10. Get counterparty signature.
             progressTracker.setCurrentStep(COLLECTING);
             subFlow(new IdentitySyncFlow.Send(buyerSession, ptx.getTx()));
             final SignedTransaction stx = subFlow(new CollectSignaturesFlow(
@@ -132,27 +135,28 @@ public class SettleFXForward {
                     signingKeys,
                     COLLECTING.childProgressTracker()));
 
-            // Stage 11. Finalize the transaction.
             progressTracker.setCurrentStep(FINALISING);
             return subFlow(new FinalityFlow(stx, FINALISING.childProgressTracker()));
         }
     }
 
     @InitiatedBy(Initiator.class)
-    public static class Responder extends FlowLogic<SignedTransaction> {
-        private final FlowSession otherFlow;
+    public static class Responder extends FXForwardBaseFlow {
+        private final FlowSession sourceFlow;
 
-        public Responder(FlowSession otherFlow) {
-            this.otherFlow = otherFlow;
+        public Responder(FlowSession sourceFlow) {
+            this.sourceFlow = sourceFlow;
         }
 
         @Suspendable
         @Override
         public SignedTransaction call() throws FlowException {
 
-
-            subFlow(new IdentitySyncFlow.Receive(otherFlow));
-            SignedTransaction stx = subFlow(new SignTxFlowNoChecking(otherFlow, SignTransactionFlow.Companion.tracker()));
+            UntrustworthyData<UniqueIdentifier> tokenId = sourceFlow.receive(UniqueIdentifier.class);
+            final StateAndRef<Token> token = getTokenByLinearId(tokenId.unwrap((UntrustworthyData.Validator<UniqueIdentifier, UniqueIdentifier>) data -> data));
+            subFlow(new SendStateAndRefFlow(sourceFlow, Collections.singletonList(token)));
+            subFlow(new IdentitySyncFlow.Receive(sourceFlow));
+            SignedTransaction stx = subFlow(new SignTxFlowNoChecking(sourceFlow, SignTransactionFlow.Companion.tracker()));
             return waitForLedgerCommit(stx.getId());
         }
     }

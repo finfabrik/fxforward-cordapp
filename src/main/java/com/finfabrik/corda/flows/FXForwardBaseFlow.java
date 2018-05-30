@@ -1,6 +1,7 @@
 package com.finfabrik.corda.flows;
 
 import com.finfabrik.corda.FXForward;
+import com.finfabrik.corda.Token;
 import com.google.common.collect.ImmutableList;
 import net.corda.core.contracts.StateAndRef;
 import net.corda.core.contracts.UniqueIdentifier;
@@ -27,18 +28,32 @@ abstract class FXForwardBaseFlow extends FlowLogic<SignedTransaction> {
         return notaries.get(0);
     }
 
-    StateAndRef<FXForward> getForwardByLinearId(UniqueIdentifier linearId) throws FlowException {
+    StateAndRef<FXForward> getForwardByLinearId(UniqueIdentifier contractId) throws FlowException {
         QueryCriteria queryCriteria = new QueryCriteria.LinearStateQueryCriteria(
                 null,
-                ImmutableList.of(linearId),
+                ImmutableList.of(contractId),
                 Vault.StateStatus.UNCONSUMED,
                 null);
 
         List<StateAndRef<FXForward>> forwards = getServiceHub().getVaultService().queryBy(FXForward.class, queryCriteria).getStates();
         if (forwards.size() != 1) {
-            throw new FlowException(String.format("FXForward with id %s not found.", linearId));
+            throw new FlowException(String.format("FXForward with id %s not found.", contractId));
         }
         return forwards.get(0);
+    }
+
+    StateAndRef<Token> getTokenByLinearId(UniqueIdentifier tokenId) throws FlowException {
+        QueryCriteria queryCriteria = new QueryCriteria.LinearStateQueryCriteria(
+            null,
+            ImmutableList.of(tokenId),
+            Vault.StateStatus.UNCONSUMED,
+            null);
+
+        List<StateAndRef<Token>> tokens = getServiceHub().getVaultService().queryBy(Token.class, queryCriteria).getStates();
+        if (tokens.size() != 1) {
+            throw new FlowException(String.format("Token with id %s not found.", tokenId));
+        }
+        return tokens.get(0);
     }
 
     Party resolveIdentity(AbstractParty abstractParty) {

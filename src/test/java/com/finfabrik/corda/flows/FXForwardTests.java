@@ -1,5 +1,6 @@
 package com.finfabrik.corda.flows;
 
+import com.finfabrik.corda.Token;
 import com.google.common.collect.ImmutableList;
 import net.corda.core.contracts.Amount;
 import net.corda.core.contracts.UniqueIdentifier;
@@ -66,10 +67,11 @@ abstract class FXForwardTests {
   }
 
   protected SignedTransaction settleFXForward(UniqueIdentifier linearId,
+                                              UniqueIdentifier tokenId,
                                                StartedMockNode seller,
                                                Boolean anonymous) throws InterruptedException, ExecutionException {
 
-    SettleFXForward.Initiator flow = new SettleFXForward.Initiator(linearId, anonymous);
+    SettleFXForward.Initiator flow = new SettleFXForward.Initiator(linearId, tokenId, anonymous);
     return seller.startFlow(flow).get();
   }
 
@@ -80,5 +82,13 @@ abstract class FXForwardTests {
     CashIssueFlow.IssueRequest issueRequest = new CashIssueFlow.IssueRequest(amount, issueRef, notary);
     CashIssueFlow flow = new CashIssueFlow(issueRequest);
     return party.startFlow(flow).get().getStx();
+  }
+
+  protected SignedTransaction issueToken(StartedMockNode owner,
+                                              int amount, String token) throws InterruptedException, ExecutionException {
+    Party ownerParty = chooseIdentity(owner.getInfo());
+    Token issuedToken = new Token(Amount.fromDecimal(BigDecimal.valueOf(amount), new Commodity(token, token, 0)), ownerParty, new UniqueIdentifier());
+    TokenIssueFlow flow = new TokenIssueFlow(issuedToken);
+    return owner.startFlow(flow).get();
   }
 }

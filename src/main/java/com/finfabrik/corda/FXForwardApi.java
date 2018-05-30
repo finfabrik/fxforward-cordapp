@@ -34,7 +34,7 @@ import static javax.ws.rs.core.Response.Status.BAD_REQUEST;
 import static javax.ws.rs.core.Response.Status.CREATED;
 import static net.corda.finance.contracts.GetBalances.getCashBalances;
 
-@Path("crypto")
+@Path("fxforward")
 public class FXForwardApi {
     private final CordaRPCOps rpcOps;
     private final Party myIdentity;
@@ -63,7 +63,7 @@ public class FXForwardApi {
     }
 
     @GET
-    @Path("fxforwards")
+    @Path("contracts")
     @Produces(MediaType.APPLICATION_JSON)
     public List<FXForward> forwards() {
         List<StateAndRef<FXForward>> statesAndRefs = rpcOps.vaultQuery(FXForward.class).getStates();
@@ -71,7 +71,6 @@ public class FXForwardApi {
         return statesAndRefs.stream()
                 .map(stateAndRef -> stateAndRef.getState().getData())
                 .map(state -> {
-                    // We map the anonymous lender and borrower to well-known identities if possible.
                     AbstractParty possiblyWellKnownLender = rpcOps.wellKnownPartyFromAnonymous(state.getBuyer());
                     if (possiblyWellKnownLender == null) {
                         possiblyWellKnownLender = state.getBuyer();
@@ -113,7 +112,6 @@ public class FXForwardApi {
             @QueryParam(value = "amount") int amount,
             @QueryParam(value = "currency") String currency) {
 
-        // 1. Prepare issue request.
         final Amount<Currency> issueAmount = new Amount<>((long) amount * 100, Currency.getInstance(currency));
         final List<Party> notaries = rpcOps.notaryIdentities();
         if (notaries.isEmpty()) {
@@ -123,7 +121,6 @@ public class FXForwardApi {
         final OpaqueBytes issueRef = OpaqueBytes.of(new byte[1]);
         final CashIssueFlow.IssueRequest issueRequest = new CashIssueFlow.IssueRequest(issueAmount, issueRef, notary);
 
-        // 2. Start flow and wait for response.
         try {
             final FlowHandle<AbstractCashFlow.Result> flowHandle = rpcOps.startFlowDynamic(CashIssueFlow.class, issueRequest);
             final AbstractCashFlow.Result result = flowHandle.getReturnValue().get();
@@ -135,7 +132,7 @@ public class FXForwardApi {
     }
 
     @GET
-    @Path("issue-fxforward")
+    @Path("issue-contract")
     public Response issueForward(
             @QueryParam(value = "base") int base,
             @QueryParam(value = "currency") String currency,
@@ -144,7 +141,6 @@ public class FXForwardApi {
             @QueryParam(value = "party") String party,
             @QueryParam(value = "tenor") String tenorStr) {
 
-        // 1. Get party objects for the counterparty.
         final Set<Party> lenderIdentities = rpcOps.partiesFromName(party, false);
         if (lenderIdentities.size() != 1) {
             final String errMsg = String.format("Found %d identities for the lender.", lenderIdentities.size());
@@ -152,12 +148,10 @@ public class FXForwardApi {
         }
         final Party buyer = lenderIdentities.iterator().next();
 
-        // 2. Create an amount object.
-        final Amount tokenAmt = new Amount<>((long)base * 100, new Commodity(token, token, 0));
-        final Amount currencyAmt = new Amount<>((long) terms * 100, Currency.getInstance(currency));
+      final Amount currencyAmt = new Amount<>((long) base * 100, Currency.getInstance(currency));
+      final Amount tokenAmt = new Amount<>((long)terms, new Commodity(token, token, 0));
 
         Tenor tenor = new Tenor(tenorStr);
-        // 3. Start the IssueFXForward flow. We block and wait for the flow to return.
         try {
             final FlowHandle<SignedTransaction> flowHandle = rpcOps.startFlowDynamic(
                     IssueFXForward.Initiator.class,
@@ -174,18 +168,21 @@ public class FXForwardApi {
     }
 
     @GET
-    @Path("settle-fxforward")
+    @Path("settle-contract")
     public Response settleForward(
-            @QueryParam(value = "id") String id) {
-        UniqueIdentifier linearId = UniqueIdentifier.Companion.fromString(id);
+            @QueryParam(value = "contractId") String contractId,
+            @QueryParam(value = "tokenId") String tokenId
+            ) {
+        UniqueIdentifier contract = UniqueIdentifier.Companion.fromString(contractId);
+        UniqueIdentifier token = UniqueIdentifier.Companion.fromString(tokenId);
 
         try {
             final FlowHandle flowHandle = rpcOps.startFlowDynamic(
                     SettleFXForward.Initiator.class,
-                    linearId, true);
+                contract, token, true);
 
             flowHandle.getReturnValue().get();
-            final String msg = String.format("forward id %s settled", id);
+            final String msg = String.format("forward %s settled with token %s", contractId, tokenId);
             return Response.status(CREATED).entity(msg).build();
         } catch (Exception e) {
             return Response.status(BAD_REQUEST).entity(e.getMessage()).build();

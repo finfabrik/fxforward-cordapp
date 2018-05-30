@@ -67,12 +67,10 @@ public class IssueFXForward {
         @Suspendable
         @Override
         public SignedTransaction call() throws FlowException {
-            // Step 1. Initialisation.
             progressTracker.setCurrentStep(INITIALISING);
             final FXForward FXForward = createForward();
             final PublicKey ourSigningKey = FXForward.getSeller().getOwningKey();
 
-            // Step 2. Building.
             progressTracker.setCurrentStep(BUILDING);
             final List<PublicKey> requiredSigners = FXForward.getParticipantKeys();
 
@@ -81,11 +79,9 @@ public class IssueFXForward {
                     .addCommand(new FXForwardContract.Commands.Issue(), requiredSigners)
                     .setTimeWindow(getServiceHub().getClock().instant(), Duration.ofSeconds(30));
 
-            // Step 3. Sign the transaction.
             progressTracker.setCurrentStep(SIGNING);
             final SignedTransaction ptx = getServiceHub().signInitialTransaction(utx, ourSigningKey);
 
-            // Step 4. Get the counter-party signature.
             progressTracker.setCurrentStep(COLLECTING);
             final FlowSession lenderFlow = initiateFlow(buyer);
             final SignedTransaction stx = subFlow(new CollectSignaturesFlow(
@@ -95,7 +91,6 @@ public class IssueFXForward {
                     COLLECTING.childProgressTracker())
             );
 
-            // Step 5. Finalise the transaction.
             progressTracker.setCurrentStep(FINALISING);
             return subFlow(new FinalityFlow(stx, FINALISING.childProgressTracker()));
         }

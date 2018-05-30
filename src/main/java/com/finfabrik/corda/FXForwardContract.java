@@ -49,7 +49,6 @@ public class FXForwardContract implements Contract {
                 .collect(toSet());
     }
 
-    // This only allows one forward issuance per transaction.
     private void verifyIssue(LedgerTransaction tx, Set<PublicKey> signers) {
         requireThat(req -> {
             req.using("No inputs should be consumed when issuing an FXForward.",
@@ -66,44 +65,34 @@ public class FXForwardContract implements Contract {
 
     private void verifySettle(LedgerTransaction tx, Set<PublicKey> signers) {
         requireThat(req -> {
-            // Check for the presence of an input forward state.
             List<FXForward> FXForwardInputs = tx.inputsOfType(FXForward.class);
             req.using("There must be one input forward.", FXForwardInputs.size() == 1);
 
-            // Check there are output cash states.
-            // We don't care about cash inputs, the Cash contract handles those.
             List<Cash.State> cash = tx.outputsOfType(Cash.State.class);
             req.using("There must be output cash.", !cash.isEmpty());
 
-            // Check that the cash is being assigned to us.
             FXForward inputFXForward = FXForwardInputs.get(0);
             List<Cash.State> buyerPaid = cash.stream().filter(it -> it.getOwner().equals(inputFXForward.getBuyer())).collect(Collectors.toList());
             req.using("There must be output cash paid to the recipient.", !buyerPaid.isEmpty());
 
-            // Sum the cash being sent to us (we don't care about the issuer).
             Amount<Currency> sumPaid = withoutIssuer(sumCash(buyerPaid));
             Amount<Currency> amountToSettle = inputFXForward.getBase();
             req.using("The amount settled cannot be more than the amount outstanding.", amountToSettle.compareTo(sumPaid) >= 0);
 
             List<FXForward> FXForwardOutputs = tx.outputsOfType(FXForward.class);
 
-            // Check to see if we need an output forward or not.
             if (amountToSettle.equals(sumPaid)) {
-                // If the forward has been fully settled then there should be no forward output state.
                 req.using("There must be no output forward as it has been fully settled.", FXForwardOutputs.isEmpty());
             } else {
-                // If the forward has been partially settled then it should still exist.
                 req.using("There must be one output forward.", FXForwardOutputs.size() == 1);
 
-                // Check only the paid property changes.
                 FXForward outputFXForward = FXForwardOutputs.get(0);
                 req.using("The amount may not change when settling.", inputFXForward.getTerms().equals(outputFXForward.getTerms()));
-                req.using("The borrower may not change when settling.", inputFXForward.getSeller().equals(outputFXForward.getSeller()));
-                req.using("The lender may not change when settling.", inputFXForward.getBuyer().equals(outputFXForward.getBuyer()));
+                req.using("The seller may not change when settling.", inputFXForward.getSeller().equals(outputFXForward.getSeller()));
+                req.using("The buyer may not change when settling.", inputFXForward.getBuyer().equals(outputFXForward.getBuyer()));
                 req.using("The linearId may not change when settling.", inputFXForward.getLinearId().equals(outputFXForward.getLinearId()));
             }
 
-            // Checks the required parties have signed.
             req.using("Both lender and borrower together only must sign forward settle transaction.", signers.equals(keysFromParticipants(inputFXForward)));
             return null;
         });
