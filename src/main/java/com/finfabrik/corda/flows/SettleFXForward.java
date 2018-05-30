@@ -92,6 +92,8 @@ public class SettleFXForward {
                         "There's only %s left to settle but you pledged %s.", cashToSettle, cashToSettle));
             }
 
+            FlowSession buyerSession = initiateFlow(buyerIdentity);
+
             // Stage 5. Create a settle command.
             final List<PublicKey> requiredSigners = inputFXForward.getParticipantKeys();
             final Command settleCommand = new Command<>(new FXForwardContract.Commands.Settle(), requiredSigners);
@@ -123,11 +125,10 @@ public class SettleFXForward {
 
             // Stage 10. Get counterparty signature.
             progressTracker.setCurrentStep(COLLECTING);
-            final FlowSession session = initiateFlow(buyerIdentity);
-            subFlow(new IdentitySyncFlow.Send(session, ptx.getTx()));
+            subFlow(new IdentitySyncFlow.Send(buyerSession, ptx.getTx()));
             final SignedTransaction stx = subFlow(new CollectSignaturesFlow(
                     ptx,
-                    ImmutableSet.of(session),
+                    ImmutableSet.of(buyerSession),
                     signingKeys,
                     COLLECTING.childProgressTracker()));
 
@@ -148,6 +149,8 @@ public class SettleFXForward {
         @Suspendable
         @Override
         public SignedTransaction call() throws FlowException {
+
+
             subFlow(new IdentitySyncFlow.Receive(otherFlow));
             SignedTransaction stx = subFlow(new SignTxFlowNoChecking(otherFlow, SignTransactionFlow.Companion.tracker()));
             return waitForLedgerCommit(stx.getId());

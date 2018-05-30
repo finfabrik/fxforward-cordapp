@@ -57,9 +57,7 @@ public class FXForward implements LinearState {
         return seller;
     }
 
-    public Tenor getTenor() {
-        return tenor;
-    }
+    public Tenor getTenor() { return tenor; }
 
     @Override
     public UniqueIdentifier getLinearId() {
@@ -69,14 +67,6 @@ public class FXForward implements LinearState {
     @Override
     public List<AbstractParty> getParticipants() {
         return ImmutableList.of(buyer, seller);
-    }
-
-    public FXForward withNewLender(AbstractParty newLender) {
-        return new FXForward(this.base, this.terms, newLender, this.seller, this.tenor, this.linearId);
-    }
-
-    public FXForward withoutLender() {
-        return new FXForward(this.base, this.terms, NullKeys.INSTANCE.getNULL_PARTY(), this.seller, this.tenor, this.linearId);
     }
 
     public List<PublicKey> getParticipantKeys() {
@@ -121,6 +111,6 @@ public class FXForward implements LinearState {
 
     @Override
     public int hashCode() {
-        return Objects.hash(base, terms, buyer, seller, linearId);
+        return Objects.hash(base, terms, buyer, seller, tenor, linearId);
     }
 }
